@@ -29,8 +29,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import os
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from warnings import warn
 
 import torch
@@ -43,8 +46,17 @@ from utils import (
     monkey_patch_training_step_to_fix_memory_leak,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import modelopt.torch.opt as mto
 import modelopt.torch.quantization as mtq
+from compression_aware_trainer import (
+    CompressionArguments,
+    CompressionAwareQADTrainer,
+    CompressionAwareQATTrainer,
+)
 from modelopt.torch.distill.plugins.huggingface import LMLogitsLoss
 from modelopt.torch.quantization.plugins.transformers_trainer import QADTrainer, QATTrainer
 from modelopt.torch.utils import print_rank_0
@@ -63,6 +75,37 @@ CUSTOM_QUANT_CFG = {
         "algorithm": "max",
     }
 }
+
+EXPERIMENTAL_QUANT_CFG = {
+    "NVFP4_W4A4_WEIGHT_MSE_FP8_SWEEP_CFG",
+    "NVFP4_W4A4_WEIGHT_LOCAL_HESSIAN_CFG",
+}
+
+
+def _resolve_quant_cfg(name: str):
+    if hasattr(mtq, name):
+        return getattr(mtq, name)
+    config_module = importlib.import_module("modelopt.torch.quantization.config")
+    if hasattr(config_module, name):
+        return getattr(config_module, name)
+    raise AttributeError(f"Unknown quantization config: {name}")
+
+
+def _is_static_nvfp4_weight_cfg(quant_cfg) -> bool:
+    if not isinstance(quant_cfg, dict):
+        return False
+    quant_section = quant_cfg.get("quant_cfg", {})
+    weight_cfg = quant_section.get("*weight_quantizer", {})
+    if not isinstance(weight_cfg, dict):
+        return False
+    block_sizes = weight_cfg.get("block_sizes", {})
+    return (
+        weight_cfg.get("num_bits") == (2, 1)
+        and isinstance(block_sizes, dict)
+        and block_sizes.get(-1) == 16
+        and block_sizes.get("scale_bits") == (4, 3)
+        and block_sizes.get("type") == "static"
+    )
 
 
 @dataclass
@@ -129,7 +172,7 @@ class QuantizationArguments:
                 "Specify the quantization format for PTQ/QAT. if specified, PTQ/QAT will be enabled"
                 " with the specified quantization format"
             ),
-            "choices": mtq.config.choices | CUSTOM_QUANT_CFG.keys(),
+            "choices": mtq.config.choices | CUSTOM_QUANT_CFG.keys() | EXPERIMENTAL_QUANT_CFG,
         },
     )
     calib_size: int = field(
@@ -154,10 +197,27 @@ class QuantizationArguments:
 
 def train():
     parser = transformers.HfArgumentParser(
-        (ModelArguments, TrainingArguments, DataArguments, QuantizationArguments)
+        (ModelArguments, TrainingArguments, DataArguments, QuantizationArguments, CompressionArguments)
     )
-    model_args, training_args, data_args, quant_args = parser.parse_args_into_dataclasses()
-    print_rank_0(f"arguments: {model_args}, {training_args}, {data_args}, {quant_args}")
+    model_args, training_args, data_args, quant_args, compression_args = (
+        parser.parse_args_into_dataclasses()
+    )
+    print_rank_0(
+        f"arguments: {model_args}, {training_args}, {data_args}, {quant_args}, {compression_args}"
+    )
+
+    if quant_args.quant_cfg is not None:
+        quant_args.quant_cfg = (
+            CUSTOM_QUANT_CFG[quant_args.quant_cfg]
+            if quant_args.quant_cfg in CUSTOM_QUANT_CFG
+            else _resolve_quant_cfg(quant_args.quant_cfg)
+        )
+    if compression_args.compression_loss and not _is_static_nvfp4_weight_cfg(quant_args.quant_cfg):
+        raise RuntimeError(
+            "Experimental soft-code compression-aware QAT requires a static NVFP4 weight "
+            "configuration, such as NVFP4_W4A4_WEIGHT_MSE_FP8_SWEEP_CFG or "
+            "NVFP4_W4A4_WEIGHT_LOCAL_HESSIAN_CFG."
+        )
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -205,17 +265,13 @@ def train():
 
     if checkpoint is not None and training_args.lora:
         raise RuntimeError("Does not support LoRA resuming training yet!")
+    if compression_args.compression_loss and training_args.lora:
+        raise RuntimeError("Experimental compression-aware QAT expects trainable base weights; do not enable LoRA.")
 
     # Torch >= 2.4 throws an error if `use_reentrant` is not set explicitly
     if training_args.gradient_checkpointing and training_args.gradient_checkpointing_kwargs is None:
         training_args.gradient_checkpointing_kwargs = {"use_reentrant": True}
 
-    if quant_args.quant_cfg is not None:
-        quant_args.quant_cfg = (
-            CUSTOM_QUANT_CFG[quant_args.quant_cfg]
-            if quant_args.quant_cfg in CUSTOM_QUANT_CFG
-            else getattr(mtq, quant_args.quant_cfg)
-        )
     distill_kwargs = {}
     if training_args.distill:
         assert model_args.teacher_model is not None, "Teacher model is required for distillation."
@@ -230,7 +286,10 @@ def train():
             "criterion": LMLogitsLoss(),
         }
         distill_kwargs["distill_config"] = distill_config
-    trainer_cls = QADTrainer if training_args.distill else QATTrainer
+    if compression_args.compression_loss:
+        trainer_cls = CompressionAwareQADTrainer if training_args.distill else CompressionAwareQATTrainer
+    else:
+        trainer_cls = QADTrainer if training_args.distill else QATTrainer
 
     if training_args.lora:
         training_args.lora_config = get_lora_config()
@@ -240,6 +299,7 @@ def train():
         processing_class=tokenizer,
         args=training_args,
         quant_args=quant_args,
+        compression_args=compression_args if compression_args.compression_loss else None,
         **distill_kwargs,
         **data_module,
     )
