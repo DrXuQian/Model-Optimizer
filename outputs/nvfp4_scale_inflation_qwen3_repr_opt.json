@@ -1,0 +1,226 @@
+{
+  "checkpoint": "/home/qianxu/TensorRT-Model-Optimizer/Qwen3-4B-NVFP4/model.safetensors",
+  "alpha": 2.0,
+  "steps": 200,
+  "lr": 0.001,
+  "device": "cuda",
+  "include": [
+    "model.layers.0.self_attn.q_proj",
+    "model.layers.0.self_attn.o_proj",
+    "model.layers.0.mlp.gate_proj",
+    "model.layers.0.mlp.down_proj"
+  ],
+  "exclude": [],
+  "summary": {
+    "num_layers": 4,
+    "num_optimized_layers": 4,
+    "baseline_weighted_compression_rate": 0.009209689351391109,
+    "alpha_only_weighted_compression_rate": 0.1257586415964312,
+    "baseline_weighted_mse": 0.0,
+    "alpha_only_weighted_mse": 4.7980702304441905e-06,
+    "optimized_weighted_compression_rate": 0.15863003894425384,
+    "optimized_weighted_mse": 4.565007817223819e-06
+  },
+  "layers": [
+    {
+      "layer": "model.layers.0.mlp.down_proj",
+      "shape": [
+        2560,
+        9728
+      ],
+      "num_weights": 24903680,
+      "baseline": {
+        "mean_entropy_bits": 7.925527255837728,
+        "std_entropy_bits": 0.0038163361157418185,
+        "compression_rate": 0.009309093020284043,
+        "compressed_size_ratio": 0.990690906979716,
+        "effective_bits_per_weight": 4.500001284950658,
+        "mse_to_baseline": 0.0,
+        "global_scale": 4640.0,
+        "scale_ratio_mean": 1.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.07025845348834991,
+        "small_code_fraction": 0.3375619947910309,
+        "n_chunks": 380
+      },
+      "alpha_only": {
+        "mean_entropy_bits": 6.979780108322434,
+        "std_entropy_bits": 0.013241940664946581,
+        "compression_rate": 0.1275274864596958,
+        "compressed_size_ratio": 0.8724725135403042,
+        "effective_bits_per_weight": 4.500001284950658,
+        "mse_to_baseline": 4.964547315466916e-06,
+        "global_scale": 2320.0,
+        "scale_ratio_mean": 2.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.20779767632484436,
+        "small_code_fraction": 0.60651695728302,
+        "n_chunks": 380
+      },
+      "optimized": {
+        "mean_entropy_bits": 6.724486378364415,
+        "std_entropy_bits": 0.017624672303499,
+        "compression_rate": 0.1594392027044481,
+        "compressed_size_ratio": 0.8405607972955519,
+        "effective_bits_per_weight": 4.500001284950658,
+        "mse_to_baseline": 4.722086487163324e-06,
+        "global_scale": 2345.11376953125,
+        "scale_ratio_mean": 1.9785822629928589,
+        "scale_ratio_std": 2.4319797375937924e-07,
+        "zero_fraction": 0.07025845348834991,
+        "small_code_fraction": 0.60651695728302,
+        "n_chunks": 380
+      }
+    },
+    {
+      "layer": "model.layers.0.mlp.gate_proj",
+      "shape": [
+        9728,
+        2560
+      ],
+      "num_weights": 24903680,
+      "baseline": {
+        "mean_entropy_bits": 7.9287572668885735,
+        "std_entropy_bits": 0.0025387029441640524,
+        "compression_rate": 0.00890534163892831,
+        "compressed_size_ratio": 0.9910946583610717,
+        "effective_bits_per_weight": 4.500001284950658,
+        "mse_to_baseline": 0.0,
+        "global_scale": 5056.0,
+        "scale_ratio_mean": 1.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.07158608734607697,
+        "small_code_fraction": 0.3373032808303833,
+        "n_chunks": 380
+      },
+      "alpha_only": {
+        "mean_entropy_bits": 7.005251015056271,
+        "std_entropy_bits": 0.004131777788160729,
+        "compression_rate": 0.1243436231179661,
+        "compressed_size_ratio": 0.8756563768820339,
+        "effective_bits_per_weight": 4.500001284950658,
+        "mse_to_baseline": 4.8888614401221275e-06,
+        "global_scale": 2528.0,
+        "scale_ratio_mean": 2.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.209293931722641,
+        "small_code_fraction": 0.6026106476783752,
+        "n_chunks": 380
+      },
+      "optimized": {
+        "mean_entropy_bits": 6.735962470546041,
+        "std_entropy_bits": 0.004527395391066954,
+        "compression_rate": 0.15800469118174487,
+        "compressed_size_ratio": 0.8419953088182551,
+        "effective_bits_per_weight": 4.500001284950658,
+        "mse_to_baseline": 4.675455329561373e-06,
+        "global_scale": 2551.801513671875,
+        "scale_ratio_mean": 1.9813462495803833,
+        "scale_ratio_std": 9.031067520481884e-07,
+        "zero_fraction": 0.07158608734607697,
+        "small_code_fraction": 0.6026106476783752,
+        "n_chunks": 380
+      }
+    },
+    {
+      "layer": "model.layers.0.self_attn.o_proj",
+      "shape": [
+        2560,
+        4096
+      ],
+      "num_weights": 10485760,
+      "baseline": {
+        "mean_entropy_bits": 7.9245681866071305,
+        "std_entropy_bits": 0.002762746474261666,
+        "compression_rate": 0.009428976674108691,
+        "compressed_size_ratio": 0.9905710233258913,
+        "effective_bits_per_weight": 4.500003051757813,
+        "mse_to_baseline": 0.0,
+        "global_scale": 5152.0,
+        "scale_ratio_mean": 1.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.06939525902271271,
+        "small_code_fraction": 0.33403950929641724,
+        "n_chunks": 160
+      },
+      "alpha_only": {
+        "mean_entropy_bits": 6.986403302640632,
+        "std_entropy_bits": 0.005413858850550365,
+        "compression_rate": 0.12669958716992102,
+        "compressed_size_ratio": 0.873300412830079,
+        "effective_bits_per_weight": 4.500003051757813,
+        "mse_to_baseline": 4.1780895116971806e-06,
+        "global_scale": 2576.0,
+        "scale_ratio_mean": 2.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.2054864913225174,
+        "small_code_fraction": 0.6019662022590637,
+        "n_chunks": 160
+      },
+      "optimized": {
+        "mean_entropy_bits": 6.733101499385339,
+        "std_entropy_bits": 0.005739800929009336,
+        "compression_rate": 0.15836231257683264,
+        "compressed_size_ratio": 0.8416376874231674,
+        "effective_bits_per_weight": 4.500003051757813,
+        "mse_to_baseline": 4.020995220344048e-06,
+        "global_scale": 2596.003662109375,
+        "scale_ratio_mean": 1.984588861465454,
+        "scale_ratio_std": 7.24089659343008e-08,
+        "zero_fraction": 0.06939525902271271,
+        "small_code_fraction": 0.6019662022590637,
+        "n_chunks": 160
+      }
+    },
+    {
+      "layer": "model.layers.0.self_attn.q_proj",
+      "shape": [
+        4096,
+        2560
+      ],
+      "num_weights": 10485760,
+      "baseline": {
+        "mean_entropy_bits": 7.924182846942784,
+        "std_entropy_bits": 0.002997555829476969,
+        "compression_rate": 0.009477144132151949,
+        "compressed_size_ratio": 0.990522855867848,
+        "effective_bits_per_weight": 4.500003051757813,
+        "mse_to_baseline": 0.0,
+        "global_scale": 4544.0,
+        "scale_ratio_mean": 1.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.06931839138269424,
+        "small_code_fraction": 0.3337736129760742,
+        "n_chunks": 160
+      },
+      "alpha_only": {
+        "mean_entropy_bits": 7.008181133127661,
+        "std_entropy_bits": 0.005320887021572998,
+        "compression_rate": 0.12397735835904233,
+        "compressed_size_ratio": 0.8760226416409577,
+        "effective_bits_per_weight": 4.500003051757813,
+        "mse_to_baseline": 4.807038749277126e-06,
+        "global_scale": 2272.0,
+        "scale_ratio_mean": 2.0,
+        "scale_ratio_std": 0.0,
+        "zero_fraction": 0.20518168807029724,
+        "small_code_fraction": 0.6022094488143921,
+        "n_chunks": 160
+      },
+      "optimized": {
+        "mean_entropy_bits": 6.732310381462621,
+        "std_entropy_bits": 0.006075546829571751,
+        "compression_rate": 0.15846120231717242,
+        "compressed_size_ratio": 0.8415387976828276,
+        "effective_bits_per_weight": 4.500003051757813,
+        "mse_to_baseline": 4.473645731195575e-06,
+        "global_scale": 2319.097900390625,
+        "scale_ratio_mean": 1.9593827724456787,
+        "scale_ratio_std": 1.9503919190810848e-07,
+        "zero_fraction": 0.06931839138269424,
+        "small_code_fraction": 0.6022094488143921,
+        "n_chunks": 160
+      }
+    }
+  ]
+}
