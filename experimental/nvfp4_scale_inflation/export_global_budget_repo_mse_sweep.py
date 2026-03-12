@@ -28,6 +28,10 @@ from experimental.nvfp4_scale_inflation.double_scale_repo_mse_sweep import (
     config_with_overrides,
     preset_config,
 )
+from experimental.nvfp4_scale_inflation.layerwise_profile import (
+    infer_num_transformer_layers,
+    resolve_layerwise_config,
+)
 from experimental.nvfp4_scale_inflation.global_budget_layer_search import (
     quantize_weight_global_budget_repo_mse_sweep,
 )
@@ -147,6 +151,8 @@ def export_global_budget_repo_mse_sweep_checkpoint(
     config: DoubleScaleRepoMSESweepConfig | None = None,
     max_shard_size: int | str = "1GB",
     device: str = "cpu",
+    layerwise_profile: str = "uniform",
+    layerwise_rules_json: str | Path | None = None,
 ) -> dict[str, Any]:
     include_patterns = include_patterns or []
     exclude_patterns = exclude_patterns or []
@@ -168,6 +174,7 @@ def export_global_budget_repo_mse_sweep_checkpoint(
     )
     if max_layers > 0:
         prefixes = prefixes[:max_layers]
+    num_transformer_layers = infer_num_transformer_layers(prefixes)
 
     reports: list[dict[str, Any]] = []
     with safe_open(str(template_safetensors), framework="pt", device="cpu") as template_handle:
@@ -189,16 +196,25 @@ def export_global_budget_repo_mse_sweep_checkpoint(
                 if prefix is not None and prefix in modified_prefixes:
                     if prefix not in pending_modified:
                         full_weight = fp_loader.get_tensor(prefix + ".weight").to(device=device, dtype=torch.float32)
+                        layer_config, layerwise_metadata = resolve_layerwise_config(
+                            base_config=config,
+                            layer_name=prefix,
+                            num_transformer_layers=num_transformer_layers,
+                            profile=layerwise_profile,
+                            custom_rules_path=layerwise_rules_json,
+                        )
                         quantized = quantize_weight_global_budget_repo_mse_sweep(
                             full_weight,
-                            config=config,
+                            config=layer_config,
                         )
                         global_result = quantized["global_result"]
                         report = {
                             "layer": prefix,
                             "shape": list(full_weight.shape),
                             "num_weights": int(full_weight.numel()),
-                            "config": asdict(config),
+                            "config": asdict(layer_config),
+                            "base_config": asdict(config),
+                            "layerwise_profile": layerwise_metadata,
                             "absmax_before": quantized["report"]["absmax"],
                             "double_scale_before": quantized["report"]["double_scale"],
                             "local_budget": quantized["report"]["local_budget"],
@@ -217,6 +233,7 @@ def export_global_budget_repo_mse_sweep_checkpoint(
                         }
                         print(
                             f"exported {prefix} "
+                            f"profile={layerwise_profile} "
                             f"abs(comp={report['absmax_before']['compression_rate'] * 100:.2f}% "
                             f"entropy={report['absmax_before']['mean_entropy_bits']:.4f}bit "
                             f"mse={report['absmax_before']['mse']:.6e}) "
@@ -254,6 +271,9 @@ def export_global_budget_repo_mse_sweep_checkpoint(
         "template_nvfp4_dir": str(template_nvfp4_dir),
         "output_dir": str(output_dir),
         "config": asdict(config),
+        "layerwise_profile": layerwise_profile,
+        "layerwise_rules_json": None if layerwise_rules_json is None else str(layerwise_rules_json),
+        "num_transformer_layers": num_transformer_layers,
         "num_modified_layers": len(prefixes),
         "aggregate": {
             "absmax_before_weighted_mse": _weighted_average(reports, "absmax_before", "mse"),
@@ -322,6 +342,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--block-chunk-size", type=int, default=None)
     parser.add_argument("--max-shard-size", default="1GB")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--layerwise-profile",
+        choices=("uniform", "tmo_attention_guarded", "llm_sensitivity_v1"),
+        default="uniform",
+        help="Optional layer-wise compression schedule applied on top of the base preset.",
+    )
+    parser.add_argument(
+        "--layerwise-rules-json",
+        default=None,
+        help="Optional JSON file with extra custom layerwise rules.",
+    )
     return parser.parse_args()
 
 
@@ -345,6 +376,8 @@ def main() -> None:
         ),
         max_shard_size=args.max_shard_size,
         device=args.device,
+        layerwise_profile=args.layerwise_profile,
+        layerwise_rules_json=args.layerwise_rules_json,
     )
 
 
