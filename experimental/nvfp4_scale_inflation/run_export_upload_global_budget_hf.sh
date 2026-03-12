@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-/home/qianxu/TensorRT-Model-Optimizer}"
-OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/Qwen3-4B-NVFP4-global-budget}"
+HOME="${HOME:-/sim/eec/shared/junfu.qx}"
+MODEL_DIR="${MODEL_DIR:-/sim/eec/shared/models/Qwen}"
+REPO_ROOT="${REPO_ROOT:-$HOME/Model-Optimizer}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+OUTPUT_DIR="${OUTPUT_DIR:-$HOME/Qwen3-4B-NVFP4-global-budget}"
 HF_REPO_ID="${HF_REPO_ID:-}"
 HF_PRIVATE="${HF_PRIVATE:-0}"
 HF_COMMIT_MESSAGE="${HF_COMMIT_MESSAGE:-Upload global-budget NVFP4 export}"
@@ -25,7 +28,7 @@ if [[ "$HF_PRIVATE" == "1" ]]; then
 fi
 
 export PYTHONPATH="$REPO_ROOT"
-conda run --no-capture-output -n modelopt python \
+"$PYTHON_BIN" \
   "$REPO_ROOT/experimental/nvfp4_scale_inflation/upload_hf_folder.py" \
   "${args[@]}"
 

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-/home/qianxu/TensorRT-Model-Optimizer}"
-ENV_NAME="${ENV_NAME:-modelopt}"
-FULL_PRECISION_MODEL_DIR="${FULL_PRECISION_MODEL_DIR:-$REPO_ROOT/Qwen3-4B}"
-TEMPLATE_NVFP4_DIR="${TEMPLATE_NVFP4_DIR:-$REPO_ROOT/Qwen3-4B-NVFP4}"
-OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/Qwen3-4B-NVFP4-global-budget}"
+HOME="${HOME:-/sim/eec/shared/junfu.qx}"
+MODEL_DIR="${MODEL_DIR:-/sim/eec/shared/models/Qwen}"
+REPO_ROOT="${REPO_ROOT:-$HOME/Model-Optimizer}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+FULL_PRECISION_MODEL_DIR="${FULL_PRECISION_MODEL_DIR:-$MODEL_DIR/Qwen3-4B}"
+TEMPLATE_NVFP4_DIR="${TEMPLATE_NVFP4_DIR:-$MODEL_DIR/Qwen3-4B-NVFP4}"
+OUTPUT_DIR="${OUTPUT_DIR:-$HOME/Qwen3-4B-NVFP4-global-budget}"
 PRESET="${PRESET:-compress10}"
-DEVICE="${DEVICE:-cpu}"
+DEVICE="${DEVICE:-cuda}"
 MAX_SHARD_SIZE="${MAX_SHARD_SIZE:-1GB}"
 LOG_DIR="${LOG_DIR:-$REPO_ROOT/logs}"
 LOG_FILE="${LOG_FILE:-$LOG_DIR/export_global_budget_${PRESET}_$(date +%Y%m%d_%H%M%S).log}"
@@ -15,6 +17,8 @@ LOG_FILE="${LOG_FILE:-$LOG_DIR/export_global_budget_${PRESET}_$(date +%Y%m%d_%H%
 mkdir -p "$LOG_DIR"
 
 cat <<EOF
+HOME=$HOME
+MODEL_DIR=$MODEL_DIR
 REPO_ROOT=$REPO_ROOT
 FULL_PRECISION_MODEL_DIR=$FULL_PRECISION_MODEL_DIR
 TEMPLATE_NVFP4_DIR=$TEMPLATE_NVFP4_DIR
@@ -27,7 +31,7 @@ EOF
 
 export PYTHONPATH="$REPO_ROOT"
 
-conda run --no-capture-output -n "$ENV_NAME" python -u \
+"$PYTHON_BIN" -u \
   "$REPO_ROOT/experimental/nvfp4_scale_inflation/export_global_budget_repo_mse_sweep.py" \
   --full-precision-model-dir "$FULL_PRECISION_MODEL_DIR" \
   --template-nvfp4-dir "$TEMPLATE_NVFP4_DIR" \

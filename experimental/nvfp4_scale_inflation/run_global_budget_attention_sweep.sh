@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-/home/qianxu/TensorRT-Model-Optimizer}"
-ENV_NAME="${ENV_NAME:-modelopt}"
-FULL_PRECISION_MODEL_DIR="${FULL_PRECISION_MODEL_DIR:-$REPO_ROOT/Qwen3-4B}"
+HOME="${HOME:-/sim/eec/shared/junfu.qx}"
+MODEL_DIR="${MODEL_DIR:-/sim/eec/shared/models/Qwen}"
+REPO_ROOT="${REPO_ROOT:-$HOME/Model-Optimizer}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+FULL_PRECISION_MODEL_DIR="${FULL_PRECISION_MODEL_DIR:-$MODEL_DIR/Qwen3-4B}"
 LAYERS="${LAYERS:-model.layers.0.self_attn.q_proj,model.layers.0.self_attn.k_proj,model.layers.0.self_attn.v_proj,model.layers.0.self_attn.o_proj}"
 ROW_LIMIT="${ROW_LIMIT:-128}"
 PRESET="${PRESET:-compress10}"
@@ -15,6 +17,8 @@ LOG_FILE="${LOG_FILE:-$LOG_DIR/global_budget_attention_sweep_${PRESET}_row${ROW_
 mkdir -p "$LOG_DIR"
 
 cat <<EOF
+HOME=$HOME
+MODEL_DIR=$MODEL_DIR
 REPO_ROOT=$REPO_ROOT
 FULL_PRECISION_MODEL_DIR=$FULL_PRECISION_MODEL_DIR
 LAYERS=$LAYERS
@@ -27,7 +31,7 @@ EOF
 
 export PYTHONPATH="$REPO_ROOT"
 
-conda run --no-capture-output -n "$ENV_NAME" python -u \
+"$PYTHON_BIN" -u \
   "$REPO_ROOT/experimental/nvfp4_scale_inflation/global_budget_layer_sweep.py" \
   --full-precision-model-dir "$FULL_PRECISION_MODEL_DIR" \
   --layers "$LAYERS" \
