@@ -71,6 +71,27 @@ TRANSFORMERS_VERSION_GE_5_0 = version.parse(transformers.__version__) >= version
 class _QuantAttention(QuantModule):
     """Attention class for KV Cache quantization compatible with new_attention_interface in transformers >= 4.48.0."""
 
+    @staticmethod
+    def _unwrap_attention_interface(attention_interface):
+        """Unwrap a previously patched attention interface back to the original callable.
+
+        This makes the patching logic re-entrant and avoids recursive self-calls if a prior
+        patch was left behind or if the attention interface is observed in an already-patched
+        state.
+        """
+        while attention_interface is not None:
+            unwrapped = getattr(attention_interface, "_modelopt_original_attention_interface", None)
+            if unwrapped is not None:
+                attention_interface = unwrapped
+                continue
+            if isinstance(attention_interface, partial):
+                func = getattr(attention_interface, "func", None)
+                if func is _QuantAttention._quantized_attention and attention_interface.args:
+                    attention_interface = attention_interface.args[0]
+                    continue
+            break
+        return attention_interface
+
     def _setup(self):
         self.q_bmm_quantizer = TensorQuantizer()
         self.k_bmm_quantizer = TensorQuantizer()
@@ -127,6 +148,9 @@ class _QuantAttention(QuantModule):
     ):
         if kitchen is not None and self.kitchen_attn_fn is None:
             self._init_kitchen_attn_fn()
+        original_attention_interface = _QuantAttention._unwrap_attention_interface(
+            original_attention_interface
+        )
 
         query_states = self.q_bmm_quantizer(query_states)
         key_states = self.k_bmm_quantizer(key_states)
@@ -188,7 +212,9 @@ class _QuantAttention(QuantModule):
             if _is_eager_attention()
             else module.ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
         )
+        original_attention_interface = self._unwrap_attention_interface(original_attention_interface)
         patch_fn = partial(self._quantized_attention, original_attention_interface)
+        patch_fn._modelopt_original_attention_interface = original_attention_interface
 
         if _is_eager_attention():
             if not hasattr(module, "eager_attention_forward"):

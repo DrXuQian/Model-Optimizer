@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import inspect
+from functools import partial
 
 import pytest
 import torch
@@ -106,7 +107,6 @@ def test_kv_quant_hf(model_getter, attn_cls):
                 parent = model_test.get_submodule(name.split(f".{attention_module}")[0])
                 setattr(parent, attention_module, attn_cls())
 
-    model_test(input_ids, **kwargs)
     mtq.quantize(model_test, kv_cache_config, lambda model: model(input_ids, **kwargs))
 
     for name, module in model_test.named_modules():
@@ -120,7 +120,41 @@ def test_kv_quant_hf(model_getter, attn_cls):
 
     if attn_cls is not None:
         _QuantAttention.is_compatible_attention = original_is_compatible_attention
-        mtq.unregister(attn_cls)
+
+
+def test_quantized_attention_unwraps_nested_patch():
+    config = LlamaConfig(hidden_size=128, num_attention_heads=4, num_key_value_heads=4)
+    quant_attention = _QuantAttention.convert(LlamaAttention(config, layer_idx=0))
+
+    batch_size = 2
+    num_heads = config.num_attention_heads
+    seqlen = 4
+    head_dim = config.hidden_size // config.num_attention_heads
+    query_states = torch.randn(batch_size, num_heads, seqlen, head_dim)
+    key_states = torch.randn(batch_size, num_heads, seqlen, head_dim)
+    value_states = torch.randn(batch_size, num_heads, seqlen, head_dim)
+
+    call_count = 0
+
+    def original_attention_interface(self, q, k, v, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return q + k + v, None
+
+    stale_patch = partial(_QuantAttention._quantized_attention, original_attention_interface)
+    nested_patch = partial(_QuantAttention._quantized_attention, stale_patch)
+
+    output, _ = quant_attention._quantized_attention(
+        nested_patch,
+        quant_attention,
+        query_states,
+        key_states,
+        value_states,
+        attention_mask=None,
+    )
+
+    assert call_count == 1
+    assert output.shape == query_states.shape
 
 
 def test_kv_quant_bert():
