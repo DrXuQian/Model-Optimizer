@@ -72,15 +72,21 @@ def _builtin_profile_rules(profile: str) -> list[LayerwiseCompressionRule]:
     if name == "tmo_attention_guarded":
         return [
             LayerwiseCompressionRule(
-                name="qkv_conservative",
+                name="qk_conservative",
                 patterns=(
                     "*.self_attn.q_proj",
                     "*.self_attn.k_proj",
-                    "*.self_attn.v_proj",
                 ),
                 alpha_scale=0.85,
                 soft_budget_override=0.75,
-                description="Mimic TMO's NVFP4_MLP_ONLY/OMLP_ONLY preference by keeping QKV more conservative.",
+                description="Mimic TMO's NVFP4_MLP_ONLY/OMLP_ONLY preference by keeping Q/K more conservative.",
+            ),
+            LayerwiseCompressionRule(
+                name="v_proj_extra_conservative",
+                patterns=("*.self_attn.v_proj",),
+                alpha_scale=0.80,
+                soft_budget_override=0.85,
+                description="Post-QK sensitivity often localizes on V in softmax attention; keep V more conservative.",
             ),
             LayerwiseCompressionRule(
                 name="o_proj_moderate",
@@ -90,10 +96,16 @@ def _builtin_profile_rules(profile: str) -> list[LayerwiseCompressionRule]:
                 description="o_proj is less sensitive than QKV but still more sensitive than MLP.",
             ),
             LayerwiseCompressionRule(
-                name="mlp_slightly_aggressive",
-                patterns=("*.mlp.*_proj",),
+                name="mlp_gate_guarded",
+                patterns=("*.mlp.gate_proj",),
+                soft_budget_scale=0.95,
+                description="SwiGLU gate can amplify outliers; keep gate_proj closer to the base budget.",
+            ),
+            LayerwiseCompressionRule(
+                name="mlp_updown_aggressive",
+                patterns=("*.mlp.up_proj", "*.mlp.down_proj"),
                 soft_budget_scale=0.90,
-                description="MLP projections typically tolerate slightly more compression.",
+                description="Up/down MLP projections typically tolerate slightly more compression.",
             ),
         ]
     if name == "llm_sensitivity_v1":
@@ -109,7 +121,7 @@ def _builtin_profile_rules(profile: str) -> list[LayerwiseCompressionRule]:
             ),
             LayerwiseCompressionRule(
                 name="middle_mlp_bonus",
-                patterns=("*.mlp.*_proj",),
+                patterns=("*.mlp.up_proj", "*.mlp.down_proj"),
                 min_layer=4,
                 max_layer=27,
                 soft_budget_scale=0.85,
