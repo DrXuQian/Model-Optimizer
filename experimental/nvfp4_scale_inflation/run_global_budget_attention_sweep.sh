@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOME="${HOME:-/sim/eec/shared/junfu.qx}"
+HOME="/sim/eec/shared/junfu.qx"
 MODEL_DIR="${MODEL_DIR:-/sim/eec/shared/models/Qwen}"
 REPO_ROOT="${REPO_ROOT:-$HOME/Model-Optimizer}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
