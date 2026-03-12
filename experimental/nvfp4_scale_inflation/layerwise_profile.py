@@ -24,6 +24,7 @@ class LayerwiseCompressionRule:
     min_layer: int | None = None
     max_layer: int | None = None
     edge_layers: int | None = None
+    tail_layers: int | None = None
     alpha_scale: float = 1.0
     soft_budget_scale: float | None = None
     soft_budget_override: float | None = None
@@ -61,6 +62,11 @@ def _matches_rule(
         if layer_idx is None or num_layers is None:
             return False
         if not (layer_idx < rule.edge_layers or layer_idx >= num_layers - rule.edge_layers):
+            return False
+    if rule.tail_layers is not None:
+        if layer_idx is None or num_layers is None:
+            return False
+        if layer_idx < num_layers - rule.tail_layers:
             return False
     return True
 
@@ -114,10 +120,10 @@ def _builtin_profile_rules(profile: str) -> list[LayerwiseCompressionRule]:
             LayerwiseCompressionRule(
                 name="edge_layer_guard",
                 patterns=("model.layers.*.*",),
-                edge_layers=4,
+                tail_layers=4,
                 alpha_scale=0.90,
                 soft_budget_scale=1.35,
-                description="First/last transformer blocks are often more sensitive; back off compression there.",
+                description="Back off compression in the final transformer blocks, consistent with high-precision tail-layer recipes.",
             ),
             LayerwiseCompressionRule(
                 name="middle_mlp_bonus",
@@ -144,6 +150,7 @@ def load_custom_layerwise_rules(path: str | Path) -> list[LayerwiseCompressionRu
                 min_layer=item.get("min_layer"),
                 max_layer=item.get("max_layer"),
                 edge_layers=item.get("edge_layers"),
+                tail_layers=item.get("tail_layers"),
                 alpha_scale=float(item.get("alpha_scale", 1.0)),
                 soft_budget_scale=item.get("soft_budget_scale"),
                 soft_budget_override=item.get("soft_budget_override"),
