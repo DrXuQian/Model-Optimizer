@@ -14,8 +14,6 @@ from typing import Any
 
 import torch
 from safetensors import safe_open
-
-from experimental.nvfp4_entquant.optimizer import absmax_actual_scales
 from experimental.nvfp4_scale_inflation.scale_inflation import (
     BLOCK_SIZE,
     FP4_MAX_SCALE_VALUE,
@@ -32,6 +30,13 @@ _EPS = 1e-6
 _FP4_VALUES_F32 = FP4_VALUES.to(torch.float32)
 _CODE_SIGNS = torch.tensor([0, 1, 1, 1, 1, 1, 1, 1, 0, -1, -1, -1, -1, -1, -1, -1])
 DEFAULT_PRESET = "compress10"
+
+
+def absmax_actual_scales(weight: torch.Tensor) -> torch.Tensor:
+    """Per-block absmax initialization for NVFP4 actual scales."""
+    blocks = weight.to(torch.float32).view(*weight.shape[:-1], -1, BLOCK_SIZE)
+    scales = blocks.abs().amax(dim=-1) / 6.0
+    return torch.clamp(scales, min=_EPS)
 
 
 @dataclass(frozen=True)

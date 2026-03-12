@@ -20,6 +20,7 @@ from experimental.nvfp4_scale_inflation.double_scale_repo_mse_sweep import (
     DEFAULT_PRESET,
     DoubleScaleRepoMSESweepConfig,
     ShardedTensorLoader,
+    absmax_actual_scales,
     config_with_overrides,
     legalize_scales_with_fixed_global,
     _metrics_from_result,
@@ -28,7 +29,6 @@ from experimental.nvfp4_scale_inflation.double_scale_repo_mse_sweep import (
     quantize_weight_double_scale_repo_mse_sweep,
 )
 from experimental.nvfp4_scale_inflation.scale_inflation import list_nvfp4_weight_prefixes
-from experimental.nvfp4_entquant.optimizer import absmax_actual_scales
 
 
 def _parse_size_bytes(size: int | str) -> int:
