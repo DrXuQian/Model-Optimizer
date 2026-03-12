@@ -36,18 +36,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import argparse
 import warnings
 
-from lm_eval import utils
-from lm_eval.__main__ import cli_evaluate, parse_eval_args, setup_parser
+from lm_eval._cli import HarnessCLI
+from lm_eval._cli.run import Run
 from lm_eval.api.model import T
 from lm_eval.models.huggingface import HFLM
 from quantization_utils import quantize_model
-from sparse_attention_utils import sparsify_model
 
 import modelopt.torch.opt as mto
 from modelopt.torch.quantization.utils import is_quantized
-from modelopt.torch.sparsity.attention_sparsity.conversion import is_attn_sparsified
 
 
 def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | None = None) -> T:
@@ -97,6 +96,9 @@ def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | 
         )
 
     if sparse_cfg:
+        from sparse_attention_utils import sparsify_model
+        from modelopt.torch.sparsity.attention_sparsity.conversion import is_attn_sparsified
+
         if is_attn_sparsified(model_obj.model):
             warnings.warn("Skipping sparse attention: model already has sparse attention applied.")
         else:
@@ -111,9 +113,23 @@ def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | 
 HFLM.create_from_arg_obj = classmethod(create_from_arg_obj)
 
 
-def setup_parser_with_modelopt_args():
-    parser = setup_parser()
-    parser.add_argument(
+MODELOPT_LM_EVAL_ARGS = (
+    "quant_cfg",
+    "calib_batch_size",
+    "calib_size",
+    "auto_quantize_bits",
+    "auto_quantize_method",
+    "auto_quantize_score_size",
+    "auto_quantize_checkpoint",
+    "compress",
+    "sparse_cfg",
+)
+
+
+def setup_parser_with_modelopt_args() -> HarnessCLI:
+    parser = HarnessCLI()
+    run_parser = parser._subparsers.choices["run"]
+    run_parser.add_argument(
         "--quant_cfg",
         type=str,
         help=(
@@ -121,13 +137,13 @@ def setup_parser_with_modelopt_args():
             "comma-separated list of quantization quantization formats that will be searched by `auto_quantize`"
         ),
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--calib_batch_size", type=int, help="Batch size for quantization calibration"
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--calib_size", type=int, help="Calibration size for quantization", default=512
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--auto_quantize_bits",
         type=float,
         help=(
@@ -135,7 +151,7 @@ def setup_parser_with_modelopt_args():
             "regular quantization will be applied."
         ),
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--auto_quantize_method",
         type=str,
         default="gradient",
@@ -146,7 +162,7 @@ def setup_parser_with_modelopt_args():
             "quantized model outputs (no labels required). Default: 'gradient'"
         ),
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--auto_quantize_score_size",
         type=int,
         default=128,
@@ -156,35 +172,33 @@ def setup_parser_with_modelopt_args():
             "final model accuracy compared to lowering --calib_size (the number of samples used for calibration)."
         ),
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--auto_quantize_checkpoint",
         type=str,
         help=("Path to checkpoint file for saving/restoring auto_quantize search state. "),
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--compress",
         action="store_true",
         help="Compress the model after quantization",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "--sparse_cfg",
         type=str,
         help="Sparse attention configuration (e.g., SKIP_SOFTMAX_DEFAULT, SKIP_SOFTMAX_CALIB)",
     )
+    run_parser.set_defaults(func=_execute_run_with_modelopt)
     return parser
 
 
-if __name__ == "__main__":
-    parser = setup_parser_with_modelopt_args()
-    args = parse_eval_args(parser)
-    model_args = utils.simple_parse_args_string(args.model_args)
+def _prepare_args_for_modelopt(args: argparse.Namespace) -> argparse.Namespace:
+    model_args = {} if args.model_args is None else dict(args.model_args)
 
     if args.trust_remote_code:
         import datasets
 
         datasets.config.HF_DATASETS_TRUST_REMOTE_CODE = True
         model_args["trust_remote_code"] = True
-        args.trust_remote_code = None
 
     model_args.update(
         {
@@ -201,5 +215,24 @@ if __name__ == "__main__":
     )
 
     args.model_args = model_args
+    return args
 
-    cli_evaluate(args)
+
+def _strip_modelopt_args(args: argparse.Namespace) -> argparse.Namespace:
+    sanitized = argparse.Namespace(**vars(args))
+    for name in MODELOPT_LM_EVAL_ARGS:
+        if hasattr(sanitized, name):
+            delattr(sanitized, name)
+    return sanitized
+
+
+def _execute_run_with_modelopt(args: argparse.Namespace) -> None:
+    args = _prepare_args_for_modelopt(args)
+    args = _strip_modelopt_args(args)
+    Run._execute(args)
+
+
+if __name__ == "__main__":
+    parser = setup_parser_with_modelopt_args()
+    args = parser.parse_args()
+    parser.execute(args)
