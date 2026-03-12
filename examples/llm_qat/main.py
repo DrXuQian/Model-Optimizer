@@ -294,15 +294,18 @@ def train():
     if training_args.lora:
         training_args.lora_config = get_lora_config()
 
-    trainer = trainer_cls(
-        model=model,
-        processing_class=tokenizer,
-        args=training_args,
-        quant_args=quant_args,
-        compression_args=compression_args if compression_args.compression_loss else None,
+    trainer_kwargs = {
+        "model": model,
+        "processing_class": tokenizer,
+        "args": training_args,
+        "quant_args": quant_args,
         **distill_kwargs,
         **data_module,
-    )
+    }
+    if compression_args.compression_loss:
+        trainer_kwargs["compression_args"] = compression_args
+
+    trainer = trainer_cls(**trainer_kwargs)
 
     # There could be GPU memory leak during QAT causing OOM. This is a workaround to fix it.
     monkey_patch_training_step_to_fix_memory_leak(trainer)
