@@ -1,5 +1,5 @@
-# Adapted from https://github.com/EleutherAI/lm-evaluation-harness/tree/aa457edc3d64d81530159cd3a182932320c78f8c
-
+# Adapted from https://github.com/EleutherAI/lm-evaluation-harness
+#
 # MIT License
 #
 # Copyright (c) 2020 EleutherAI
@@ -22,36 +22,72 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+
+"""ModelOpt-aware wrapper for lm-evaluation-harness HF models.
+
+This script targets lm_eval==0.4.11, whose CLI is based on HarnessCLI/Run rather
+than the older setup_parser/parse_eval_args helpers.
+"""
+
+from __future__ import annotations
+
 import argparse
 import warnings
+from typing import Any
 
-from lm_eval._cli import HarnessCLI
-from lm_eval._cli.run import Run
-from lm_eval.api.model import T
+from lm_eval.__main__ import cli_evaluate
+from lm_eval._cli import harness as harness_cli
 from lm_eval.models.huggingface import HFLM
-from quantization_utils import quantize_model
 
 import modelopt.torch.opt as mto
 from modelopt.torch.quantization.utils import is_quantized
 
+_MODEL_OPT_ARGS = (
+    "quant_cfg",
+    "calib_batch_size",
+    "calib_size",
+    "auto_quantize_bits",
+    "auto_quantize_method",
+    "auto_quantize_score_size",
+    "auto_quantize_checkpoint",
+    "compress",
+    "sparse_cfg",
+)
 
-def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | None = None) -> T:
-    """Overrides the HFLM.create_from_arg_obj"""
 
+def _import_quantize_model():
+    from quantization_utils import quantize_model
+
+    return quantize_model
+
+
+def _import_sparsify_model():
+    from sparse_attention_utils import sparsify_model
+
+    return sparsify_model
+
+
+def _is_attn_sparsified(model: Any) -> bool:
+    try:
+        from modelopt.torch.sparsity.attention_sparsity.conversion import is_attn_sparsified
+
+        return bool(is_attn_sparsified(model))
+    except ModuleNotFoundError:
+        warnings.warn(
+            "Sparse attention helpers are unavailable in this modelopt install; "
+            "skipping is_attn_sparsified() check."
+        )
+        return False
+
+
+def create_from_arg_obj(
+    cls: type[HFLM], arg_dict: dict[str, Any], additional_config: dict | None = None
+) -> HFLM:
+    """Extend HFLM.create_from_arg_obj with ModelOpt quantization/sparsity hooks."""
+
+    arg_dict = dict(arg_dict)
     quant_cfg = arg_dict.pop("quant_cfg", None)
     auto_quantize_bits = arg_dict.pop("auto_quantize_bits", None)
     auto_quantize_method = arg_dict.pop("auto_quantize_method", "gradient")
@@ -60,20 +96,18 @@ def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | 
     calib_batch_size = arg_dict.pop("calib_batch_size", None)
     calib_size = arg_dict.pop("calib_size", 512)
     compress = arg_dict.pop("compress", False)
-
-    # Sparse attention arguments
     sparse_cfg = arg_dict.pop("sparse_cfg", None)
 
     additional_config = {} if additional_config is None else additional_config
     additional_config = {k: v for k, v in additional_config.items() if v is not None}
 
-    # Enable automatic save/load of modelopt state huggingface checkpointing
+    # Enable automatic save/load of modelopt state huggingface checkpointing.
     mto.enable_huggingface_checkpointing()
 
     model_obj = cls(**arg_dict, **additional_config)
     model_obj.tokenizer.padding_side = "left"
+
     if is_quantized(model_obj.model):
-        # return if model is already quantized
         warnings.warn("Skipping quantization: model is already quantized.")
         return model_obj
 
@@ -81,6 +115,7 @@ def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | 
         if not calib_batch_size:
             calib_batch_size = model_obj.batch_size
 
+        quantize_model = _import_quantize_model()
         quantize_model(
             model=model_obj,
             quant_cfg=quant_cfg.split(",") if auto_quantize_bits is not None else quant_cfg,
@@ -96,12 +131,10 @@ def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | 
         )
 
     if sparse_cfg:
-        from sparse_attention_utils import sparsify_model
-        from modelopt.torch.sparsity.attention_sparsity.conversion import is_attn_sparsified
-
-        if is_attn_sparsified(model_obj.model):
+        if _is_attn_sparsified(model_obj.model):
             warnings.warn("Skipping sparse attention: model already has sparse attention applied.")
         else:
+            sparsify_model = _import_sparsify_model()
             sparsify_model(
                 model=model_obj,
                 sparse_cfg=sparse_cfg,
@@ -110,129 +143,124 @@ def create_from_arg_obj(cls: type[T], arg_dict: dict, additional_config: dict | 
     return model_obj
 
 
-HFLM.create_from_arg_obj = classmethod(create_from_arg_obj)
+def _patch_hflm() -> None:
+    HFLM.create_from_arg_obj = classmethod(create_from_arg_obj)
 
 
-MODELOPT_LM_EVAL_ARGS = (
-    "quant_cfg",
-    "calib_batch_size",
-    "calib_size",
-    "auto_quantize_bits",
-    "auto_quantize_method",
-    "auto_quantize_score_size",
-    "auto_quantize_checkpoint",
-    "compress",
-    "sparse_cfg",
-)
+def _patch_run_parser() -> None:
+    original_add_args = harness_cli.Run._add_args
+    original_execute = harness_cli.Run._execute
+
+    def _add_args(self) -> None:
+        original_add_args(self)
+
+        modelopt_group = self._parser.add_argument_group("modelopt")
+        modelopt_group.add_argument(
+            "--quant_cfg",
+            type=str,
+            help=(
+                "Quantization format. If --auto_quantize_bits is specified, this argument specifies "
+                "the comma-separated list of quantization formats searched by auto_quantize."
+            ),
+        )
+        modelopt_group.add_argument(
+            "--calib_batch_size",
+            type=int,
+            help="Batch size for quantization calibration",
+        )
+        modelopt_group.add_argument(
+            "--calib_size",
+            type=int,
+            default=512,
+            help="Calibration size for quantization",
+        )
+        modelopt_group.add_argument(
+            "--auto_quantize_bits",
+            type=float,
+            help=(
+                "Effective bits constraint for auto_quantize. If not set, regular quantization "
+                "will be applied."
+            ),
+        )
+        modelopt_group.add_argument(
+            "--auto_quantize_method",
+            type=str,
+            default="gradient",
+            choices=["gradient", "kl_div"],
+            help=(
+                "Method for auto_quantize sensitivity analysis. 'gradient' uses labels; 'kl_div' "
+                "uses KL divergence between original and quantized outputs."
+            ),
+        )
+        modelopt_group.add_argument(
+            "--auto_quantize_score_size",
+            type=int,
+            default=128,
+            help="Number of samples to use for auto_quantize scoring.",
+        )
+        modelopt_group.add_argument(
+            "--auto_quantize_checkpoint",
+            type=str,
+            help="Path to checkpoint file for saving/restoring auto_quantize search state.",
+        )
+        modelopt_group.add_argument(
+            "--compress",
+            action="store_true",
+            help="Compress the model after quantization.",
+        )
+        modelopt_group.add_argument(
+            "--sparse_cfg",
+            type=str,
+            help="Sparse attention configuration (e.g. SKIP_SOFTMAX_DEFAULT).",
+        )
+
+    def _execute(args: argparse.Namespace) -> None:
+        model_args = {} if args.model_args is None else dict(args.model_args)
+        modelopt_values: dict[str, Any] = {}
+
+        if getattr(args, "trust_remote_code", False):
+            import datasets
+
+            datasets.config.HF_DATASETS_TRUST_REMOTE_CODE = True
+            model_args["trust_remote_code"] = True
+            args.trust_remote_code = None
+
+        for key in _MODEL_OPT_ARGS:
+            if hasattr(args, key):
+                modelopt_values[key] = getattr(args, key)
+                delattr(args, key)
+
+        enable_modelopt = any(
+            [
+                modelopt_values.get("quant_cfg") is not None,
+                modelopt_values.get("auto_quantize_bits") is not None,
+                modelopt_values.get("auto_quantize_checkpoint") is not None,
+                modelopt_values.get("calib_batch_size") is not None,
+                bool(modelopt_values.get("compress")),
+                modelopt_values.get("sparse_cfg") is not None,
+            ]
+        )
+
+        if enable_modelopt:
+            for key, value in modelopt_values.items():
+                if value is None:
+                    continue
+                if key == "compress" and value is False:
+                    continue
+                model_args[key] = value
+
+        args.model_args = model_args
+        original_execute(args)
+
+    harness_cli.Run._add_args = _add_args
+    harness_cli.Run._execute = staticmethod(_execute)
 
 
-def setup_parser_with_modelopt_args() -> HarnessCLI:
-    parser = HarnessCLI()
-    run_parser = parser._subparsers.choices["run"]
-    run_parser.add_argument(
-        "--quant_cfg",
-        type=str,
-        help=(
-            "Quantization format. If `--auto_quantize_bits` is specified, this argument specifies the "
-            "comma-separated list of quantization quantization formats that will be searched by `auto_quantize`"
-        ),
-    )
-    run_parser.add_argument(
-        "--calib_batch_size", type=int, help="Batch size for quantization calibration"
-    )
-    run_parser.add_argument(
-        "--calib_size", type=int, help="Calibration size for quantization", default=512
-    )
-    run_parser.add_argument(
-        "--auto_quantize_bits",
-        type=float,
-        help=(
-            "Effective bits constraint for auto_quantize. If not set, "
-            "regular quantization will be applied."
-        ),
-    )
-    run_parser.add_argument(
-        "--auto_quantize_method",
-        type=str,
-        default="gradient",
-        choices=["gradient", "kl_div"],
-        help=(
-            "Method for auto_quantize sensitivity analysis. 'gradient' uses gradient-based method "
-            "(requires labels in dataset). 'kl_div' uses KL divergence between original and "
-            "quantized model outputs (no labels required). Default: 'gradient'"
-        ),
-    )
-    run_parser.add_argument(
-        "--auto_quantize_score_size",
-        type=int,
-        default=128,
-        help=(
-            "Number of samples to use for auto_quantize scoring. Most of auto_quantize time is spent on "
-            "sensitivity score estimation, so reducing this speeds it up while only minimally affecting "
-            "final model accuracy compared to lowering --calib_size (the number of samples used for calibration)."
-        ),
-    )
-    run_parser.add_argument(
-        "--auto_quantize_checkpoint",
-        type=str,
-        help=("Path to checkpoint file for saving/restoring auto_quantize search state. "),
-    )
-    run_parser.add_argument(
-        "--compress",
-        action="store_true",
-        help="Compress the model after quantization",
-    )
-    run_parser.add_argument(
-        "--sparse_cfg",
-        type=str,
-        help="Sparse attention configuration (e.g., SKIP_SOFTMAX_DEFAULT, SKIP_SOFTMAX_CALIB)",
-    )
-    run_parser.set_defaults(func=_execute_run_with_modelopt)
-    return parser
-
-
-def _prepare_args_for_modelopt(args: argparse.Namespace) -> argparse.Namespace:
-    model_args = {} if args.model_args is None else dict(args.model_args)
-
-    if args.trust_remote_code:
-        import datasets
-
-        datasets.config.HF_DATASETS_TRUST_REMOTE_CODE = True
-        model_args["trust_remote_code"] = True
-
-    model_args.update(
-        {
-            "quant_cfg": args.quant_cfg,
-            "auto_quantize_bits": args.auto_quantize_bits,
-            "auto_quantize_method": args.auto_quantize_method,
-            "auto_quantize_score_size": args.auto_quantize_score_size,
-            "auto_quantize_checkpoint": args.auto_quantize_checkpoint,
-            "calib_batch_size": args.calib_batch_size,
-            "calib_size": args.calib_size,
-            "compress": args.compress,
-            "sparse_cfg": args.sparse_cfg,
-        }
-    )
-
-    args.model_args = model_args
-    return args
-
-
-def _strip_modelopt_args(args: argparse.Namespace) -> argparse.Namespace:
-    sanitized = argparse.Namespace(**vars(args))
-    for name in MODELOPT_LM_EVAL_ARGS:
-        if hasattr(sanitized, name):
-            delattr(sanitized, name)
-    return sanitized
-
-
-def _execute_run_with_modelopt(args: argparse.Namespace) -> None:
-    args = _prepare_args_for_modelopt(args)
-    args = _strip_modelopt_args(args)
-    Run._execute(args)
+def main() -> None:
+    _patch_hflm()
+    _patch_run_parser()
+    cli_evaluate()
 
 
 if __name__ == "__main__":
-    parser = setup_parser_with_modelopt_args()
-    args = parser.parse_args()
-    parser.execute(args)
+    main()
