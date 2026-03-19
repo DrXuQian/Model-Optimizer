@@ -207,6 +207,35 @@ def soft_code_entropy_bits_per_block_chunked(
     return torch.cat(outputs, dim=0).reshape(*scaled_blocks.shape[:-1])
 
 
+def hard_code_entropy_bits_per_block(scaled_blocks: torch.Tensor) -> torch.Tensor:
+    """Return per-block hard-code entropy for [..., block_size] scaled weights.
+
+    Quantizes to nearest FP4 codeword, counts frequencies, computes Shannon entropy.
+    """
+    codes = quantize_to_fp4_codes(scaled_blocks.reshape(-1)).view(*scaled_blocks.shape)
+    n_blocks = codes.shape[:-1].numel()
+    flat_codes = codes.reshape(n_blocks, BLOCK_SIZE)
+    # One-hot count over 16 codewords
+    one_hot = torch.zeros(n_blocks, 16, device=codes.device, dtype=torch.float32)
+    one_hot.scatter_add_(1, flat_codes.long(), torch.ones_like(flat_codes, dtype=torch.float32))
+    hist = one_hot / BLOCK_SIZE
+    return -(hist * torch.log2(hist.clamp_min(_EPS))).sum(dim=-1).reshape(*codes.shape[:-1])
+
+
+def hard_code_entropy_bits_per_block_chunked(
+    scaled_blocks: torch.Tensor,
+    *,
+    block_chunk_size: int = 65536,
+) -> torch.Tensor:
+    """Compute per-block hard-code entropy in chunks along the block dimension."""
+    flat = scaled_blocks.reshape(-1, BLOCK_SIZE)
+    outputs = []
+    for start in range(0, flat.shape[0], block_chunk_size):
+        chunk = flat[start : start + block_chunk_size]
+        outputs.append(hard_code_entropy_bits_per_block(chunk))
+    return torch.cat(outputs, dim=0).reshape(*scaled_blocks.shape[:-1])
+
+
 def mse_sweep_scales_from_fixed_global(
     weight: torch.Tensor,
     global_max_scale: torch.Tensor | float,

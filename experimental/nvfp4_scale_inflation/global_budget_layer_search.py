@@ -26,6 +26,7 @@ from experimental.nvfp4_scale_inflation.double_scale_repo_mse_sweep import (
     _quantize_from_scales,
     absmax_actual_scales,
     config_with_overrides,
+    hard_code_entropy_bits_per_block_chunked,
     preset_config,
     quantize_weight_double_scale_repo_mse_sweep,
     soft_code_entropy_bits_per_block_chunked,
@@ -99,6 +100,32 @@ def _soft_total_entropy(weight: torch.Tensor, scales: torch.Tensor, *, temperatu
     )
 
 
+def _total_entropy(
+    weight: torch.Tensor,
+    scales: torch.Tensor,
+    *,
+    temperature: float,
+    block_chunk_size: int,
+    entropy_proxy: str = "soft",
+) -> float:
+    blocks = weight.reshape(-1, BLOCK_SIZE)
+    scaled = blocks / scales.reshape(-1, 1)
+    if entropy_proxy == "hard":
+        return float(
+            hard_code_entropy_bits_per_block_chunked(
+                scaled,
+                block_chunk_size=block_chunk_size,
+            ).sum().item()
+        )
+    return float(
+        soft_code_entropy_bits_per_block_chunked(
+            scaled,
+            temperature=temperature,
+            block_chunk_size=block_chunk_size,
+        ).sum().item()
+    )
+
+
 def _global_budget_search(
     weight: torch.Tensor,
     *,
@@ -107,6 +134,7 @@ def _global_budget_search(
     target_hard_compression_rate: float,
     hard_gap_tolerance: float = 0.01,
     include_tensors: bool = False,
+    entropy_proxy: str = "soft",
 ) -> dict[str, Any]:
     weight = weight.to(torch.float32)
     blocks = weight.reshape(-1, BLOCK_SIZE)
@@ -129,11 +157,17 @@ def _global_budget_search(
             quantized_codes = quantize_to_fp4_codes(scaled.reshape(-1)).view(cand.numel(), num_blocks, BLOCK_SIZE)
             dequantized = fp4_codes_to_values(quantized_codes).to(torch.float32) * cand.view(-1, 1, 1)
             mse_chunk = ((dequantized - blocks.unsqueeze(0)) ** 2).mean(dim=-1).transpose(0, 1)
-            entropy_chunk = soft_code_entropy_bits_per_block_chunked(
-                scaled,
-                temperature=config.soft_temperature,
-                block_chunk_size=config.block_chunk_size,
-            ).transpose(0, 1)
+            if entropy_proxy == "hard":
+                entropy_chunk = hard_code_entropy_bits_per_block_chunked(
+                    scaled,
+                    block_chunk_size=config.block_chunk_size,
+                ).transpose(0, 1)
+            else:
+                entropy_chunk = soft_code_entropy_bits_per_block_chunked(
+                    scaled,
+                    temperature=config.soft_temperature,
+                    block_chunk_size=config.block_chunk_size,
+                ).transpose(0, 1)
             valid_chunk = cand.view(1, -1) >= min_scales.view(-1, 1)
             mse_table[:, start : start + cand.numel()] = mse_chunk
             entropy_table[:, start : start + cand.numel()] = entropy_chunk
@@ -257,6 +291,7 @@ def quantize_weight_global_budget_repo_mse_sweep(
     *,
     config: DoubleScaleRepoMSESweepConfig,
     hard_gap_tolerance: float = 0.01,
+    entropy_proxy: str = "soft",
 ) -> dict[str, Any]:
     weight = weight.to(torch.float32)
     absmax_scales = absmax_actual_scales(weight)
@@ -267,11 +302,12 @@ def quantize_weight_global_budget_repo_mse_sweep(
     absmax_metrics = _metrics_from_result(weight, absmax_result)
     double_metrics = _metrics_from_result(weight, double_result)
     local_metrics = _metrics_from_result(weight, local_result)
-    local_total_entropy = _soft_total_entropy(
+    local_total_entropy = _total_entropy(
         weight,
         local_result.actual_scales,
         temperature=config.soft_temperature,
         block_chunk_size=config.block_chunk_size,
+        entropy_proxy=entropy_proxy,
     )
     global_search = _global_budget_search(
         weight,
@@ -280,6 +316,7 @@ def quantize_weight_global_budget_repo_mse_sweep(
         target_hard_compression_rate=local_metrics["compression_rate"],
         hard_gap_tolerance=hard_gap_tolerance,
         include_tensors=True,
+        entropy_proxy=entropy_proxy,
     )
     global_result = _quantize_from_scales(weight, global_search["selected_scales"].reshape_as(absmax_scales))
     global_metrics = _metrics_from_result(weight, global_result)
@@ -311,6 +348,7 @@ def run_layer_global_budget_search(
     layer: str,
     config: DoubleScaleRepoMSESweepConfig,
     row_limit: int = 128,
+    entropy_proxy: str = "soft",
 ) -> dict[str, Any]:
     with ShardedTensorLoader(full_precision_model_dir) as loader:
         weight = loader.get_tensor(layer + ".weight").to(torch.float32)
@@ -322,6 +360,7 @@ def run_layer_global_budget_search(
     quantized = quantize_weight_global_budget_repo_mse_sweep(
         weight,
         config=config,
+        entropy_proxy=entropy_proxy,
     )
     absmax_metrics = quantized["report"]["absmax"]
     double_metrics = quantized["report"]["double_scale"]
@@ -372,6 +411,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-chunk-size", type=int, default=None)
     parser.add_argument("--block-chunk-size", type=int, default=None)
     parser.add_argument("--output-json", required=True)
+    parser.add_argument(
+        "--entropy-proxy",
+        choices=("soft", "hard"),
+        default="soft",
+        help="Entropy proxy for search: 'soft' (default) or 'hard' (frequency-based).",
+    )
     return parser.parse_args()
 
 
@@ -392,6 +437,7 @@ def main() -> None:
         layer=args.layer,
         config=config,
         row_limit=args.row_limit,
+        entropy_proxy=args.entropy_proxy,
     )
     output_path = Path(args.output_json)
     output_path.parent.mkdir(parents=True, exist_ok=True)

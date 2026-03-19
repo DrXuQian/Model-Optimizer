@@ -153,6 +153,7 @@ def export_global_budget_repo_mse_sweep_checkpoint(
     device: str = "cpu",
     layerwise_profile: str = "uniform",
     layerwise_rules_json: str | Path | None = None,
+    entropy_proxy: str = "soft",
 ) -> dict[str, Any]:
     include_patterns = include_patterns or []
     exclude_patterns = exclude_patterns or []
@@ -206,6 +207,7 @@ def export_global_budget_repo_mse_sweep_checkpoint(
                         quantized = quantize_weight_global_budget_repo_mse_sweep(
                             full_weight,
                             config=layer_config,
+                            entropy_proxy=entropy_proxy,
                         )
                         global_result = quantized["global_result"]
                         report = {
@@ -353,6 +355,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional JSON file with extra custom layerwise rules.",
     )
+    parser.add_argument(
+        "--entropy-proxy",
+        choices=("soft", "hard"),
+        default="soft",
+        help="Entropy proxy for search: 'soft' (default) or 'hard' (frequency-based).",
+    )
     return parser.parse_args()
 
 
@@ -378,6 +386,7 @@ def main() -> None:
         device=args.device,
         layerwise_profile=args.layerwise_profile,
         layerwise_rules_json=args.layerwise_rules_json,
+        entropy_proxy=args.entropy_proxy,
     )
 
 
