@@ -31,23 +31,8 @@ python3 experimental/nvfp4_scale_inflation/export_global_budget_repo_mse_sweep.p
   --entropy-proxy hard
 
 echo ""
-echo "=== Also export soft-code version for comparison ==="
-
-rm -rf /root/autodl-tmp/Qwen3-4B-NVFP4-softcode
-
-python3 experimental/nvfp4_scale_inflation/export_global_budget_repo_mse_sweep.py \
-  --full-precision-model-dir /root/autodl-tmp/Qwen3-4B \
-  --template-nvfp4-dir /root/autodl-tmp/Qwen3-4B-NVFP4 \
-  --output-dir /root/autodl-tmp/Qwen3-4B-NVFP4-softcode \
-  --preset compress10 \
-  --device cuda \
-  --entropy-proxy soft
-
-echo ""
 echo "=== Done ==="
 echo "Hard-code model: /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode"
-echo "Soft-code model: /root/autodl-tmp/Qwen3-4B-NVFP4-softcode"
 echo ""
-echo "Check reports:"
+echo "Check report:"
 echo "  cat /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode/global_budget_repo_mse_sweep_export.json | python3 -m json.tool | grep weighted"
-echo "  cat /root/autodl-tmp/Qwen3-4B-NVFP4-softcode/global_budget_repo_mse_sweep_export.json | python3 -m json.tool | grep weighted"
