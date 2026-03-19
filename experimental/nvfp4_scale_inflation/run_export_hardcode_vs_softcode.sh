@@ -1,38 +1,53 @@
-#!/bin/bash
-# Export NVFP4 model with hard-code entropy proxy
-# Target: ~90% compression rate (controlled by CIP-Proxy selection, not entropy budget)
-#
-# Usage:
-#   bash experimental/nvfp4_scale_inflation/run_export_hardcode_vs_softcode.sh
-#
-# After export, push to HuggingFace:
-#   python experimental/nvfp4_scale_inflation/upload_hf_folder.py \
-#     --folder /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode \
-#     --repo-id <your-hf-repo>
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+HOME="/sim/eec/shared/junfu.qx"
+MODEL_DIR="${MODEL_DIR:-/sim/eec/shared/models/Qwen}"
+REPO_ROOT="${REPO_ROOT:-$HOME/Model-Optimizer}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+FULL_PRECISION_MODEL_DIR="${FULL_PRECISION_MODEL_DIR:-$MODEL_DIR/Qwen3-4B}"
+TEMPLATE_NVFP4_DIR="${TEMPLATE_NVFP4_DIR:-$MODEL_DIR/Qwen3-4B-NVFP4}"
+OUTPUT_DIR="${OUTPUT_DIR:-$HOME/Qwen3-4B-NVFP4-hardcode}"
+ENTROPY_PROXY="${ENTROPY_PROXY:-hard}"
+PRESET="${PRESET:-compress10}"
+DEVICE="${DEVICE:-cuda}"
+MAX_SHARD_SIZE="${MAX_SHARD_SIZE:-1GB}"
+LOG_DIR="${LOG_DIR:-$REPO_ROOT/logs}"
+LOG_FILE="${LOG_FILE:-$LOG_DIR/export_${ENTROPY_PROXY}_${PRESET}_$(date +%Y%m%d_%H%M%S).log}"
 
-cd /root/Model-Optimizer
+mkdir -p "$LOG_DIR"
 
-# Clean previous output if exists
-rm -rf /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode
+cat <<EOF
+HOME=$HOME
+MODEL_DIR=$MODEL_DIR
+REPO_ROOT=$REPO_ROOT
+FULL_PRECISION_MODEL_DIR=$FULL_PRECISION_MODEL_DIR
+TEMPLATE_NVFP4_DIR=$TEMPLATE_NVFP4_DIR
+OUTPUT_DIR=$OUTPUT_DIR
+ENTROPY_PROXY=$ENTROPY_PROXY
+PRESET=$PRESET
+DEVICE=$DEVICE
+MAX_SHARD_SIZE=$MAX_SHARD_SIZE
+LOG_FILE=$LOG_FILE
+EOF
 
-echo "=== Exporting with hard-code entropy proxy ==="
-echo "Preset: compress10 (alpha=2.0, soft_entropy_budget_ratio=0.25)"
-echo "Entropy proxy: hard"
-echo ""
+export PYTHONPATH="$REPO_ROOT"
 
-python3 experimental/nvfp4_scale_inflation/export_global_budget_repo_mse_sweep.py \
-  --full-precision-model-dir /root/autodl-tmp/Qwen3-4B \
-  --template-nvfp4-dir /root/autodl-tmp/Qwen3-4B-NVFP4 \
-  --output-dir /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode \
-  --preset compress10 \
-  --device cuda \
-  --entropy-proxy hard
+"$PYTHON_BIN" -u \
+  "$REPO_ROOT/experimental/nvfp4_scale_inflation/export_global_budget_repo_mse_sweep.py" \
+  --full-precision-model-dir "$FULL_PRECISION_MODEL_DIR" \
+  --template-nvfp4-dir "$TEMPLATE_NVFP4_DIR" \
+  --output-dir "$OUTPUT_DIR" \
+  --preset "$PRESET" \
+  --device "$DEVICE" \
+  --max-shard-size "$MAX_SHARD_SIZE" \
+  --entropy-proxy "$ENTROPY_PROXY" \
+  2>&1 | tee "$LOG_FILE"
 
-echo ""
-echo "=== Done ==="
-echo "Hard-code model: /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode"
-echo ""
-echo "Check report:"
-echo "  cat /root/autodl-tmp/Qwen3-4B-NVFP4-hardcode/global_budget_repo_mse_sweep_export.json | python3 -m json.tool | grep weighted"
+cat <<EOF
+EXPORT_DONE=1
+OUTPUT_DIR=$OUTPUT_DIR
+ENTROPY_PROXY=$ENTROPY_PROXY
+REPORT_JSON=$OUTPUT_DIR/global_budget_repo_mse_sweep_export.json
+LOG_FILE=$LOG_FILE
+EOF
